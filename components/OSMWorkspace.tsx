@@ -12,11 +12,11 @@ import {
   Upload,
   CheckCircle,
   AlertTriangle,
-  RotateCcw,
   BookOpen,
   X,
   Copy,
   Check,
+  Info,
 } from "lucide-react";
 import DocumentDropzone from "./DocumentDropzone";
 import ImageViewer from "./ImageViewer";
@@ -26,9 +26,9 @@ import MarkingPanel, { QuestionMark } from "./MarkingPanel";
 const PDFViewer = dynamic(() => import("./PDFViewer"), {
   ssr: false,
   loading: () => (
-    <div className="flex flex-col items-center justify-center min-h-[500px] bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl">
-      <div className="w-8 h-8 border-2 border-violet-600 border-t-transparent rounded-full animate-spin mb-3" />
-      <span className="text-sm text-zinc-500 dark:text-zinc-400">Loading document renderer...</span>
+    <div className="flex flex-col items-center justify-center min-h-[500px] bg-slate-100 border border-gray-200 rounded-xl">
+      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+      <span className="text-sm text-gray-500 font-medium">Loading document renderer...</span>
     </div>
   ),
 });
@@ -94,7 +94,6 @@ export default function OSMWorkspace() {
           setFileName("sample-paper.pdf");
           showNotification("info", "Loaded standard sample-paper.pdf");
         } else {
-          // If sample-paper.pdf isn't found, check if there's an image fallback in public
           const imgResponse = await fetch("/sample-image.png", { method: "HEAD" });
           if (imgResponse.ok) {
             setFile("/sample-image.png");
@@ -113,9 +112,7 @@ export default function OSMWorkspace() {
 
   const showNotification = (type: "success" | "error" | "info", message: string) => {
     setNotification({ type, message });
-    setTimeout(() => {
-      setNotification(null);
-    }, 5000);
+    setTimeout(() => setNotification(null), 5000);
   };
 
   const handleFileSelect = (selectedFile: File) => {
@@ -126,15 +123,12 @@ export default function OSMWorkspace() {
     setPageNumber(1);
     setScale(1.0);
     setRotation(0);
-
     const objectUrl = URL.createObjectURL(selectedFile);
     setFileUrl(objectUrl);
-
     showNotification("success", `Successfully loaded: ${selectedFile.name}`);
   };
 
   const handleUseMock = () => {
-    // Generate a high fidelity SVG/DataURI fallback scan paper to display
     const mockImage = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1100" viewBox="0 0 800 1100">
       <rect width="100%" height="100%" fill="%23fcfcf9"/>
       <path d="M 0 0 L 800 0 L 800 1100 L 0 1100 Z" fill="none" stroke="%23cccccc" stroke-width="4"/>
@@ -211,7 +205,6 @@ export default function OSMWorkspace() {
     setFileUrl(mockImage);
     setFile(mockImage);
 
-    // Set custom mock marking schema
     const mockQuestions: QuestionMark[] = [
       { id: "mq-1", name: "Q-1 (Linked List)", marksAwarded: 9, maxMarks: 10, remarks: "Excellent reverse algorithm, optimal O(N) complexity" },
       { id: "mq-2", name: "Q-2 (TCP vs UDP)", marksAwarded: 8.5, maxMarks: 10, remarks: "Well structured difference, missing header comparisons" },
@@ -222,7 +215,6 @@ export default function OSMWorkspace() {
     setQuestions(mockQuestions);
     setOverallRemarks("Good response in basic algorithms and networks. DB concepts are solid. Needs evaluation for scheduling.");
     setEvaluationStatus("In Progress");
-
     showNotification("info", "Loaded pre-configured mock exam answer sheet");
   };
 
@@ -238,44 +230,21 @@ export default function OSMWorkspace() {
     setNumPages(1);
   };
 
-  // Zoom control handlers
-  const handleZoomIn = () => {
-    setScale((prev) => Math.min(prev + 0.15, 3.0));
-  };
-
-  const handleZoomOut = () => {
-    setScale((prev) => Math.max(prev - 0.15, 0.5));
-  };
-
-  const handleZoomReset = () => {
-    setScale(1.0);
-  };
-
-  // Rotation control handler
-  const handleRotate = () => {
-    setRotation((prev) => (prev + 90) % 360);
-  };
-
-  // PDF page navigation
-  const handlePrevPage = () => {
-    setPageNumber((prev) => Math.max(prev - 1, 1));
-  };
-
-  const handleNextPage = () => {
-    setPageNumber((prev) => Math.min(prev + 1, numPages));
-  };
+  const handleZoomIn = () => setScale((prev) => Math.min(prev + 0.15, 3.0));
+  const handleZoomOut = () => setScale((prev) => Math.max(prev - 0.15, 0.5));
+  const handleZoomReset = () => setScale(1.0);
+  const handleRotate = () => setRotation((prev) => (prev + 90) % 360);
+  const handlePrevPage = () => setPageNumber((prev) => Math.max(prev - 1, 1));
+  const handleNextPage = () => setPageNumber((prev) => Math.min(prev + 1, numPages));
 
   const handleSave = () => {
     setIsSaving(true);
 
     const payload = {
       timestamp: new Date().toISOString(),
-      document: {
-        fileName,
-        fileType,
-      },
+      document: { fileName, fileType },
       evaluation: {
-        questions: questions.map(q => ({
+        questions: questions.map((q) => ({
           id: q.id,
           name: q.name,
           marksAwarded: q.marksAwarded === "" ? null : q.marksAwarded,
@@ -286,10 +255,9 @@ export default function OSMWorkspace() {
         status: evaluationStatus,
         totalScore: questions.reduce((sum, q) => sum + (typeof q.marksAwarded === "number" ? q.marksAwarded : 0), 0),
         maxPossibleScore: questions.reduce((sum, q) => sum + q.maxMarks, 0),
-      }
+      },
     };
 
-    // Simulate network delay
     setTimeout(() => {
       setIsSaving(false);
       console.log("=== OSM ASSESSMENT DATA SAVED ===");
@@ -299,11 +267,10 @@ export default function OSMWorkspace() {
       setLastSavedData(payload);
       setShowSavedModal(true);
 
-      // Trigger a client-side file download so the user gets a physical file
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
       const downloadAnchor = document.createElement("a");
       downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `evaluation_${fileName.split('.')[0] || 'result'}.json`);
+      downloadAnchor.setAttribute("download", `evaluation_${fileName.split(".")[0] || "result"}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
@@ -312,122 +279,147 @@ export default function OSMWorkspace() {
     }, 1500);
   };
 
+  // Notification icon helper
+  const NotifIcon = {
+    success: <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />,
+    error:   <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />,
+    info:    <Info className="w-4 h-4 text-blue-600 shrink-0" />,
+  };
+
+  const notifStyles = {
+    success: "bg-white border-green-200 text-green-800",
+    error:   "bg-white border-red-200 text-red-800",
+    info:    "bg-white border-blue-200 text-blue-800",
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-zinc-50 dark:bg-black overflow-hidden font-sans">
-      {/* Top Application Bar */}
-      <header className="h-16 shrink-0 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between px-6 z-10 shadow-sm">
+    <div className="flex flex-col h-screen bg-[#F8FAFC] overflow-hidden" style={{ fontFamily: "var(--font-inter, system-ui, sans-serif)" }}>
+
+      {/* ── Top Application Bar ──────────────────────────────────────── */}
+      <header className="h-14 shrink-0 bg-white border-b border-gray-200 flex items-center justify-between px-5 z-10"
+        style={{ boxShadow: "0 1px 2px 0 rgba(15,23,42,0.05)" }}
+      >
+        {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="bg-violet-600 p-2 rounded-xl text-white">
-            <BookOpen className="w-5 h-5" />
+          <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded-xl">
+            <BookOpen className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h1 className="text-md font-extrabold text-zinc-900 dark:text-zinc-50 tracking-tight">
+            <h1 className="text-sm font-extrabold text-gray-900 tracking-tight leading-tight">
               AuraMark OSM
             </h1>
-            <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
-              On-Screen Evaluation Suite MVP
+            <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-widest leading-tight">
+              On-Screen Evaluation Suite
             </p>
           </div>
         </div>
 
+        {/* File badge (center) */}
         {file && (
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800 rounded-lg max-w-sm">
-            <FileText className="w-4 h-4 text-violet-500 shrink-0" />
-            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 truncate" title={fileName}>
+          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg max-w-xs">
+            <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span className="text-xs font-semibold text-gray-600 truncate" title={fileName}>
               {fileName}
             </span>
           </div>
         )}
 
-        <div className="flex items-center gap-3">
+        {/* Right actions */}
+        <div className="flex items-center gap-2.5">
           {file && (
             <button
               onClick={handleClearDocument}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              className="
+                flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                text-gray-600 bg-white border border-gray-200 rounded-lg
+                hover:bg-gray-50 hover:text-gray-800 transition-all duration-150
+              "
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>Change Document</span>
+              Change Document
             </button>
           )}
-          <span className="text-xs font-bold px-2.5 py-1 bg-violet-600/10 dark:bg-violet-400/10 text-violet-600 dark:text-violet-400 rounded-md">
-            MVP mode
+          <span className="text-[11px] font-bold px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-100 rounded-md">
+            MVP
           </span>
         </div>
       </header>
 
-      {/* Toast Notification Banner */}
+      {/* ── Toast Notification ───────────────────────────────────────── */}
       {notification && (
-        <div className="fixed top-20 right-6 z-50 animate-bounce">
-          <div className={`flex items-center gap-3.5 px-4.5 py-3.5 rounded-xl shadow-lg border text-sm font-semibold max-w-md ${
-            notification.type === "success"
-              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
-              : notification.type === "error"
-              ? "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300"
-              : "bg-violet-500/10 border-violet-500/30 text-violet-700 dark:text-violet-300"
-          }`}>
-            {notification.type === "success" && <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />}
-            {notification.type === "error" && <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />}
-            {notification.type === "info" && <FileText className="w-5 h-5 text-violet-500 shrink-0" />}
+        <div className="fixed top-16 right-5 z-50 animate-in slide-in-from-top-2 fade-in duration-200">
+          <div
+            className={`
+              flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-semibold max-w-sm
+              ${notifStyles[notification.type]}
+            `}
+            style={{ boxShadow: "0 4px 16px 0 rgba(15,23,42,0.10)" }}
+          >
+            {NotifIcon[notification.type]}
             <span>{notification.message}</span>
           </div>
         </div>
       )}
 
-      {/* Main Workspace Layout */}
+      {/* ── Main Workspace ───────────────────────────────────────────── */}
       <main className="flex-1 flex overflow-hidden">
         {!file ? (
-          <div className="flex-1 flex items-center justify-center p-8 bg-zinc-50 dark:bg-zinc-900/50">
+          /* Dropzone screen */
+          <div className="flex-1 flex items-center justify-center p-8 bg-[#F8FAFC]">
             <DocumentDropzone onFileSelect={handleFileSelect} onUseMock={handleUseMock} />
           </div>
         ) : (
           <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+
             {/* Left Panel: Document Viewer */}
-            <div className="flex-1 flex flex-col bg-zinc-100 dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 overflow-hidden">
-              {/* Viewer Control Toolbar */}
-              <div className="h-12 shrink-0 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between px-4 z-10">
-                {/* Zoom Controls */}
+            <div className="flex-1 flex flex-col bg-[#F1F5F9] border-r border-gray-200 overflow-hidden">
+
+              {/* Viewer Toolbar */}
+              <div className="h-11 shrink-0 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-10">
+
+                {/* Zoom controls */}
                 <div className="flex items-center gap-1">
                   <button
                     onClick={handleZoomOut}
-                    className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-zinc-800 transition-colors"
+                    className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all duration-150"
                     title="Zoom Out"
                   >
                     <ZoomOut className="w-4 h-4" />
                   </button>
                   <button
                     onClick={handleZoomReset}
-                    className="text-xs font-semibold px-2 py-1 bg-zinc-50 dark:bg-zinc-900 rounded-md border border-zinc-200 dark:border-zinc-800 text-zinc-600 hover:bg-zinc-100 transition-colors"
+                    className="text-xs font-bold px-2.5 py-1 bg-gray-50 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-100 transition-all duration-150 min-w-[52px]"
                     title="Reset Zoom"
                   >
                     {Math.round(scale * 100)}%
                   </button>
                   <button
                     onClick={handleZoomIn}
-                    className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-zinc-800 transition-colors"
+                    className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all duration-150"
                     title="Zoom In"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* Page Navigation */}
+                {/* Page navigation */}
                 {fileType === "pdf" && numPages > 1 && (
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={handlePrevPage}
                       disabled={pageNumber === 1}
-                      className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 rounded-lg text-zinc-500 hover:text-zinc-800 transition-colors"
+                      className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
                       title="Previous Page"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
-                    <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
-                      Page {pageNumber} of {numPages}
+                    <span className="text-xs font-bold text-gray-600">
+                      {pageNumber} / {numPages}
                     </span>
                     <button
                       onClick={handleNextPage}
                       disabled={pageNumber === numPages}
-                      className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 rounded-lg text-zinc-500 hover:text-zinc-800 transition-colors"
+                      className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
                       title="Next Page"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -435,20 +427,18 @@ export default function OSMWorkspace() {
                   </div>
                 )}
 
-                {/* Rotation Control */}
-                <div className="flex items-center">
-                  <button
-                    onClick={handleRotate}
-                    className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-500 hover:text-zinc-800 transition-colors"
-                    title="Rotate 90° Clockwise"
-                  >
-                    <RotateCw className="w-4 h-4" />
-                  </button>
-                </div>
+                {/* Rotate */}
+                <button
+                  onClick={handleRotate}
+                  className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all duration-150"
+                  title="Rotate 90° Clockwise"
+                >
+                  <RotateCw className="w-4 h-4" />
+                </button>
               </div>
 
-              {/* Viewport content */}
-              <div className="flex-1 overflow-auto p-4 flex justify-center items-start">
+              {/* Document viewport */}
+              <div className="flex-1 overflow-auto p-5 flex justify-center items-start">
                 {fileType === "pdf" ? (
                   <PDFViewer
                     fileUrl={file}
@@ -475,7 +465,7 @@ export default function OSMWorkspace() {
             </div>
 
             {/* Right Panel: Marking Panel */}
-            <div className="w-full lg:w-[420px] shrink-0 p-5 bg-zinc-50 dark:bg-zinc-900 border-t lg:border-t-0 border-zinc-200 dark:border-zinc-800 overflow-y-auto">
+            <div className="w-full lg:w-[400px] shrink-0 p-4 bg-[#F8FAFC] border-t lg:border-t-0 border-gray-200 overflow-y-auto">
               <MarkingPanel
                 questions={questions}
                 overallRemarks={overallRemarks}
@@ -487,28 +477,34 @@ export default function OSMWorkspace() {
                 isSaving={isSaving}
               />
             </div>
+
           </div>
         )}
       </main>
 
-      {/* Saved Data JSON Viewer Modal */}
+      {/* ── Saved Data JSON Modal ────────────────────────────────────── */}
       {showSavedModal && lastSavedData && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-zinc-950 w-full max-w-2xl rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden flex flex-col max-h-[85vh] transform transition-transform scale-100 duration-300">
+        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowSavedModal(false); }}
+        >
+          <div
+            className="bg-white w-full max-w-2xl rounded-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[85vh]"
+            style={{ boxShadow: "0 20px 60px -10px rgba(15,23,42,0.18), 0 4px 16px -4px rgba(15,23,42,0.10)" }}
+          >
             {/* Modal Header */}
-            <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/10">
-              <div className="flex items-center gap-2.5">
-                <div className="bg-emerald-500/10 p-2 rounded-lg text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle className="w-5 h-5" />
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 bg-green-50 rounded-xl">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="text-md font-bold text-zinc-900 dark:text-zinc-50">Evaluation Saved Successfully!</h3>
-                  <p className="text-[10px] text-zinc-500 dark:text-zinc-400">Mock database capture simulation</p>
+                  <h3 className="text-sm font-bold text-gray-900">Evaluation Saved Successfully!</h3>
+                  <p className="text-[11px] text-gray-400">Mock database capture simulation</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowSavedModal(false)}
-                className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+                className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all duration-150"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -516,21 +512,32 @@ export default function OSMWorkspace() {
 
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
-              <div className="bg-amber-500/10 border border-amber-500/20 p-3.5 rounded-xl text-xs text-amber-800 dark:text-amber-300">
-                <strong>💡 Note for Evaluation Review:</strong> Since this is a frontend MVP, there is no connected backend database. However, the system successfully compiled the grading data into the structured schema below. This exact payload is logged to the developer console and is ready to be sent to a database API.
+              {/* Note banner */}
+              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 p-4 rounded-xl text-sm text-amber-800">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+                <p>
+                  <strong>Frontend MVP Note:</strong> There is no connected backend. The system compiled the grading data into the structured schema below. This payload is logged to the console and ready to be sent to a database API.
+                </p>
               </div>
 
+              {/* JSON block */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Saved JSON Schema</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    Saved JSON Schema
+                  </span>
                   <button
                     onClick={handleCopyJSON}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-600 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 bg-zinc-50 dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-800 transition-colors"
+                    className="
+                      flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                      text-gray-600 bg-white border border-gray-200 rounded-lg
+                      hover:bg-gray-50 hover:text-gray-800 transition-all duration-150
+                    "
                   >
                     {copied ? (
                       <>
-                        <Check className="w-3.5 h-3.5 text-emerald-500" />
-                        <span className="text-emerald-500 font-semibold">Copied!</span>
+                        <Check className="w-3.5 h-3.5 text-green-600" />
+                        <span className="text-green-600">Copied!</span>
                       </>
                     ) : (
                       <>
@@ -540,17 +547,25 @@ export default function OSMWorkspace() {
                     )}
                   </button>
                 </div>
-                <pre className="p-4 bg-zinc-950 text-emerald-400 font-mono text-xs rounded-xl overflow-x-auto border border-zinc-800 max-h-[350px] shadow-inner select-all">
+                <pre className="
+                  p-4 bg-gray-950 text-green-400 font-mono text-xs rounded-xl
+                  overflow-x-auto border border-gray-800 max-h-[320px] shadow-inner select-all
+                  leading-relaxed
+                ">
                   {JSON.stringify(lastSavedData, null, 2)}
                 </pre>
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/10 flex justify-end gap-2.5">
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-2.5">
               <button
                 onClick={() => setShowSavedModal(false)}
-                className="px-5 py-2.5 text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 active:scale-98 rounded-xl transition-all duration-200 shadow-md shadow-violet-500/10"
+                className="
+                  px-5 py-2.5 text-sm font-semibold text-white bg-blue-600
+                  hover:bg-blue-700 active:scale-[0.98] rounded-xl
+                  transition-all duration-200 shadow-sm hover:shadow-md
+                "
               >
                 Done
               </button>
@@ -558,6 +573,7 @@ export default function OSMWorkspace() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
