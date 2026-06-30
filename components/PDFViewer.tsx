@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import { Loader2 } from "lucide-react";
 
@@ -25,16 +25,12 @@ export default function PDFViewer({
   onLoadError,
 }: PDFViewerProps) {
   const [loading, setLoading] = useState(true);
-  const [pdfSource, setPdfSource] = useState<string | File>("");
+  const [prevFileUrl, setPrevFileUrl] = useState(fileUrl);
 
-  useEffect(() => {
-    if (fileUrl instanceof File) {
-      setPdfSource(fileUrl);
-    } else {
-      setPdfSource(fileUrl);
-    }
+  if (fileUrl !== prevFileUrl) {
+    setPrevFileUrl(fileUrl);
     setLoading(true);
-  }, [fileUrl]);
+  }
 
   return (
     <div className="flex flex-col items-center justify-start w-full h-full min-h-[500px] relative bg-slate-100 overflow-auto p-4 md:p-8 rounded-xl border border-gray-200">
@@ -48,7 +44,7 @@ export default function PDFViewer({
       )}
 
       <Document
-        file={pdfSource}
+        file={fileUrl}
         onLoadSuccess={(pdf) => {
           setLoading(false);
           onLoadSuccess(pdf.numPages);

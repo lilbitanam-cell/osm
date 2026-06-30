@@ -33,6 +33,29 @@ const PDFViewer = dynamic(() => import("./PDFViewer"), {
   ),
 });
 
+// ── Local types ────────────────────────────────────────────────────────────
+interface SavedPayload {
+  timestamp: string;
+  document: { fileName: string; fileType: string | null };
+  evaluation: {
+    questions: { id: string; name: string; marksAwarded: number | null; maxMarks: number; remarks: string }[];
+    overallRemarks: string;
+    status: string;
+    totalScore: number;
+    maxPossibleScore: number;
+  };
+}
+
+interface DraftData {
+  timestamp: string;
+  fileName: string;
+  fileType: "pdf" | "image" | null;
+  fileUrl: string | null;
+  questions: QuestionMark[];
+  overallRemarks: string;
+  evaluationStatus: string;
+}
+
 export default function OSMWorkspace() {
   // Document states
   const [file, setFile] = useState<File | string | null>(null);
@@ -46,16 +69,57 @@ export default function OSMWorkspace() {
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [numPages, setNumPages] = useState<number>(1);
 
-  // Marking Panel states
-  const [questions, setQuestions] = useState<QuestionMark[]>([]);
+  // Marking Panel states — questions seeded via lazy initializer (avoids useEffect setState)
+  const [questions, setQuestions] = useState<QuestionMark[]>(() =>
+    Array.from({ length: 5 }, (_, i) => ({
+      id: `q-${i + 1}`,
+      name: `Q-${i + 1}`,
+      marksAwarded: "",
+      maxMarks: 10,
+      remarks: "",
+    }))
+  );
   const [overallRemarks, setOverallRemarks] = useState<string>("");
   const [evaluationStatus, setEvaluationStatus] = useState<string>("Draft");
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // Saved Data Modal states
   const [showSavedModal, setShowSavedModal] = useState<boolean>(false);
-  const [lastSavedData, setLastSavedData] = useState<any>(null);
+  const [lastSavedData, setLastSavedData] = useState<SavedPayload | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
+
+  // Mobile layout state: "document" | "grading"
+  const [activeMobileTab, setActiveMobileTab] = useState<"document" | "grading">("document");
+
+  // Auto-save & Restoration states — draft loaded via lazy initializer (avoids useEffect setState)
+  const [hasDraft, setHasDraft] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const saved = localStorage.getItem("auramark_osm_draft");
+      if (!saved) return false;
+      const parsed: DraftData = JSON.parse(saved);
+      return Boolean(
+        parsed.fileName &&
+          (parsed.overallRemarks ||
+            parsed.questions.some((q) => q.marksAwarded !== "" || q.remarks !== ""))
+      );
+    } catch {
+      return false;
+    }
+  });
+  const [draftData, setDraftData] = useState<DraftData | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const saved = localStorage.getItem("auramark_osm_draft");
+      if (!saved) return null;
+      const parsed: DraftData = JSON.parse(saved);
+      return parsed.fileName ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const modalRef = React.useRef<HTMLDivElement>(null);
 
   const handleCopyJSON = () => {
     if (!lastSavedData) return;
@@ -70,17 +134,12 @@ export default function OSMWorkspace() {
     message: string;
   } | null>(null);
 
-  // Initialize questions
-  useEffect(() => {
-    const defaultQuestions: QuestionMark[] = Array.from({ length: 5 }, (_, i) => ({
-      id: `q-${i + 1}`,
-      name: `Q-${i + 1}`,
-      marksAwarded: "",
-      maxMarks: 10,
-      remarks: "",
-    }));
-    setQuestions(defaultQuestions);
-  }, []);
+  // Initialize questions — handled via lazy useState initializer above
+
+  const showNotification = (type: "success" | "error" | "info", message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000);
+  };
 
   // Try to load initial sample-paper.pdf from public directory on mount
   useEffect(() => {
@@ -110,10 +169,209 @@ export default function OSMWorkspace() {
     checkSamplePaper();
   }, []);
 
-  const showNotification = (type: "success" | "error" | "info", message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 5000);
+  // Draft loading — handled via lazy useState initializer above
+
+  // Auto-save effect
+  useEffect(() => {
+    if (!fileName) return;
+
+    const draft = {
+      fileName,
+      fileType,
+      fileUrl: fileUrl && fileUrl.startsWith("blob:") ? null : fileUrl,
+      questions,
+      overallRemarks,
+      evaluationStatus,
+      timestamp: new Date().toISOString()
+    };
+
+    localStorage.setItem("auramark_osm_draft", JSON.stringify(draft));
+  }, [fileName, fileType, fileUrl, questions, overallRemarks, evaluationStatus]);
+
+  // ── Viewer & page/save controls (declared before keyboard useEffect to avoid TDZ) ──
+  const handleZoomIn = () => setScale((prev) => Math.min(prev + 0.15, 3.0));
+  const handleZoomOut = () => setScale((prev) => Math.max(prev - 0.15, 0.5));
+  const handleZoomReset = () => setScale(1.0);
+  const handleRotate = () => setRotation((prev) => (prev + 90) % 360);
+  const handlePrevPage = () => setPageNumber((prev) => Math.max(prev - 1, 1));
+  const handleNextPage = () => setPageNumber((prev) => Math.min(prev + 1, numPages));
+
+  const handleSave = () => {
+    setIsSaving(true);
+
+    const payload = {
+      timestamp: new Date().toISOString(),
+      document: { fileName, fileType },
+      evaluation: {
+        questions: questions.map((q) => ({
+          id: q.id,
+          name: q.name,
+          marksAwarded: q.marksAwarded === "" ? null : q.marksAwarded,
+          maxMarks: q.maxMarks,
+          remarks: q.remarks,
+        })),
+        overallRemarks,
+        status: evaluationStatus,
+        totalScore: questions.reduce((sum, q) => sum + (typeof q.marksAwarded === "number" ? q.marksAwarded : 0), 0),
+        maxPossibleScore: questions.reduce((sum, q) => sum + q.maxMarks, 0),
+      },
+    };
+
+    setTimeout(() => {
+      setIsSaving(false);
+      console.log("=== OSM ASSESSMENT DATA SAVED ===");
+      console.log(JSON.stringify(payload, null, 2));
+      console.log("=================================");
+
+      setLastSavedData(payload);
+      setShowSavedModal(true);
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `evaluation_${fileName.split(".")[0] || "result"}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      showNotification("success", "Marks sheet successfully saved! File downloaded & details displayed.");
+    }, 1500);
   };
+
+  // Keyboard Shortcuts Hook
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.tagName === "SELECT" ||
+          activeEl.getAttribute("contenteditable") === "true")
+      ) {
+        return;
+      }
+
+      // Ctrl + S (Save)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (file) {
+          handleSave();
+        }
+        return;
+      }
+
+      // Alt shortcuts
+      if (e.altKey) {
+        switch (e.key.toLowerCase()) {
+          case "=":
+            e.preventDefault();
+            handleZoomIn();
+            break;
+          case "-":
+            e.preventDefault();
+            handleZoomOut();
+            break;
+          case "r":
+            e.preventDefault();
+            handleRotate();
+            break;
+          case "arrowleft":
+            e.preventDefault();
+            if (fileType === "pdf") {
+              handlePrevPage();
+            }
+            break;
+          case "arrowright":
+            e.preventDefault();
+            if (fileType === "pdf") {
+              handleNextPage();
+            }
+            break;
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file, fileType]);
+
+  // Modal Focus Trap & Escape key
+  useEffect(() => {
+    if (!showSavedModal) return;
+
+    const handleModalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowSavedModal(false);
+        return;
+      }
+
+      if (e.key === "Tab" && modalRef.current) {
+        const focusableElements = modalRef.current.querySelectorAll(
+          'a[href], area[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), iframe, object, embed, [tabindex="0"], [contenteditable]'
+        );
+        if (focusableElements.length === 0) return;
+        const firstElement = focusableElements[0] as HTMLElement;
+        const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+
+        if (e.shiftKey) {
+          if (document.activeElement === firstElement) {
+            lastElement.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === lastElement) {
+            firstElement.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    setTimeout(() => {
+      if (modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll("button");
+        if (focusable.length > 0) {
+          focusable[0].focus();
+        }
+      }
+    }, 50);
+
+    window.addEventListener("keydown", handleModalKeyDown);
+    return () => window.removeEventListener("keydown", handleModalKeyDown);
+  }, [showSavedModal]);
+
+  const handleRestoreDraft = () => {
+    if (!draftData) return;
+    setFileName(draftData.fileName);
+    setFileType(draftData.fileType);
+    setQuestions(draftData.questions);
+    setOverallRemarks(draftData.overallRemarks);
+    setEvaluationStatus(draftData.evaluationStatus);
+
+    if (draftData.fileUrl) {
+      setFile(draftData.fileUrl);
+      setFileUrl(draftData.fileUrl);
+    } else {
+      if (draftData.fileName === "interactive-mock-sheet.svg") {
+        handleUseMock();
+      } else {
+        showNotification("info", `Draft restored. Please browse file to view: ${draftData.fileName}`);
+      }
+    }
+    setHasDraft(false);
+    showNotification("success", "Evaluation draft successfully restored!");
+  };
+
+  const handleDiscardDraft = () => {
+    localStorage.removeItem("auramark_osm_draft");
+    setHasDraft(false);
+    setDraftData(null);
+    showNotification("info", "Draft session discarded.");
+  };
+
+
 
   const handleFileSelect = (selectedFile: File) => {
     const type = selectedFile.type === "application/pdf" ? "pdf" : "image";
@@ -190,12 +448,12 @@ export default function OSMWorkspace() {
         <tspan x="80" dy="22">I - Isolation: Transactions run independently of each other.</tspan>
         <tspan x="80" dy="22">D - Durability: Changes persist even in case of system failure.</tspan>
       </text>
-
+ 
       <circle cx="70" cy="1000" r="14" fill="%2310b981" fill-opacity="0.1" stroke="%2310b981" stroke-width="1.5"/>
       <text x="70" y="1004" font-family="sans-serif" font-size="12" font-weight="bold" fill="%2310b981" text-anchor="middle">✓</text>
       <text x="95" y="1004" font-family="sans-serif" font-size="13" font-weight="bold" fill="%2310b981">Clear, concise descriptions for all four attributes.</text>
     </svg>`;
-
+ 
     setFileType("image");
     setFileName("interactive-mock-sheet.svg");
     setPageNumber(1);
@@ -204,7 +462,7 @@ export default function OSMWorkspace() {
     setRotation(0);
     setFileUrl(mockImage);
     setFile(mockImage);
-
+ 
     const mockQuestions: QuestionMark[] = [
       { id: "mq-1", name: "Q-1 (Linked List)", marksAwarded: 9, maxMarks: 10, remarks: "Excellent reverse algorithm, optimal O(N) complexity" },
       { id: "mq-2", name: "Q-2 (TCP vs UDP)", marksAwarded: 8.5, maxMarks: 10, remarks: "Well structured difference, missing header comparisons" },
@@ -217,7 +475,7 @@ export default function OSMWorkspace() {
     setEvaluationStatus("In Progress");
     showNotification("info", "Loaded pre-configured mock exam answer sheet");
   };
-
+ 
   const handleClearDocument = () => {
     if (fileUrl && fileUrl.startsWith("blob:")) {
       URL.revokeObjectURL(fileUrl);
@@ -229,56 +487,7 @@ export default function OSMWorkspace() {
     setPageNumber(1);
     setNumPages(1);
   };
-
-  const handleZoomIn = () => setScale((prev) => Math.min(prev + 0.15, 3.0));
-  const handleZoomOut = () => setScale((prev) => Math.max(prev - 0.15, 0.5));
-  const handleZoomReset = () => setScale(1.0);
-  const handleRotate = () => setRotation((prev) => (prev + 90) % 360);
-  const handlePrevPage = () => setPageNumber((prev) => Math.max(prev - 1, 1));
-  const handleNextPage = () => setPageNumber((prev) => Math.min(prev + 1, numPages));
-
-  const handleSave = () => {
-    setIsSaving(true);
-
-    const payload = {
-      timestamp: new Date().toISOString(),
-      document: { fileName, fileType },
-      evaluation: {
-        questions: questions.map((q) => ({
-          id: q.id,
-          name: q.name,
-          marksAwarded: q.marksAwarded === "" ? null : q.marksAwarded,
-          maxMarks: q.maxMarks,
-          remarks: q.remarks,
-        })),
-        overallRemarks,
-        status: evaluationStatus,
-        totalScore: questions.reduce((sum, q) => sum + (typeof q.marksAwarded === "number" ? q.marksAwarded : 0), 0),
-        maxPossibleScore: questions.reduce((sum, q) => sum + q.maxMarks, 0),
-      },
-    };
-
-    setTimeout(() => {
-      setIsSaving(false);
-      console.log("=== OSM ASSESSMENT DATA SAVED ===");
-      console.log(JSON.stringify(payload, null, 2));
-      console.log("=================================");
-
-      setLastSavedData(payload);
-      setShowSavedModal(true);
-
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `evaluation_${fileName.split(".")[0] || "result"}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-
-      showNotification("success", "Marks sheet successfully saved! File downloaded & details displayed.");
-    }, 1500);
-  };
-
+ 
   // Notification icon helper
   const NotifIcon = {
     success: <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />,
@@ -316,7 +525,7 @@ export default function OSMWorkspace() {
 
         {/* File badge (center) */}
         {file && (
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg max-w-xs">
+          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg max-w-xs" aria-label="Active document details">
             <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
             <span className="text-xs font-semibold text-gray-600 truncate" title={fileName}>
               {fileName}
@@ -334,6 +543,7 @@ export default function OSMWorkspace() {
                 text-gray-600 bg-white border border-gray-200 rounded-lg
                 hover:bg-gray-50 hover:text-gray-800 transition-all duration-150
               "
+              aria-label="Upload a different document"
             >
               <Upload className="w-3.5 h-3.5" />
               Change Document
@@ -345,9 +555,35 @@ export default function OSMWorkspace() {
         </div>
       </header>
 
+      {/* ── Draft Recovery Alert ──────────────────────────────────────── */}
+      {hasDraft && draftData && (
+        <div className="bg-amber-50 border-b border-amber-200 px-5 py-3 flex flex-wrap gap-3 items-center justify-between z-20 shrink-0 animate-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span className="text-xs font-semibold text-amber-800">
+              Auto-saved draft from {new Date(draftData.timestamp).toLocaleTimeString()}: <strong>{draftData.fileName}</strong> ({draftData.questions.filter((q: { marksAwarded: number | string }) => q.marksAwarded !== "").length} graded items)
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleDiscardDraft}
+              className="px-2.5 py-1 text-xs font-semibold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 rounded-lg transition-colors cursor-pointer"
+            >
+              Discard
+            </button>
+            <button
+              onClick={handleRestoreDraft}
+              className="px-2.5 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition-colors cursor-pointer"
+            >
+              Restore Draft
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Toast Notification ───────────────────────────────────────── */}
       {notification && (
-        <div className="fixed top-16 right-5 z-50 animate-in slide-in-from-top-2 fade-in duration-200">
+        <div className="fixed top-16 right-5 z-50 animate-in slide-in-from-top-2 fade-in duration-200" role="status" aria-live="polite">
           <div
             className={`
               flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-semibold max-w-sm
@@ -358,6 +594,38 @@ export default function OSMWorkspace() {
             {NotifIcon[notification.type]}
             <span>{notification.message}</span>
           </div>
+        </div>
+      )}
+
+      {/* ── Sticky Mobile View Switcher ──────────────────────────────── */}
+      {file && (
+        <div className="lg:hidden shrink-0 bg-white border-b border-gray-200 flex" role="tablist" aria-label="Mobile view mode switcher">
+          <button
+            onClick={() => setActiveMobileTab("document")}
+            className={`flex-1 py-3 text-xs font-bold border-b-2 text-center transition-all ${
+              activeMobileTab === "document"
+                ? "border-blue-600 text-blue-600 bg-blue-50/20"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+            role="tab"
+            aria-selected={activeMobileTab === "document"}
+            aria-controls="mobile-viewport-container"
+          >
+            📄 Document View
+          </button>
+          <button
+            onClick={() => setActiveMobileTab("grading")}
+            className={`flex-1 py-3 text-xs font-bold border-b-2 text-center transition-all ${
+              activeMobileTab === "grading"
+                ? "border-blue-600 text-blue-600 bg-blue-50/20"
+                : "border-transparent text-gray-500 hover:text-gray-700"
+            }`}
+            role="tab"
+            aria-selected={activeMobileTab === "grading"}
+            aria-controls="mobile-marking-container"
+          >
+            📋 Grading Panel
+          </button>
         </div>
       )}
 
@@ -372,10 +640,17 @@ export default function OSMWorkspace() {
           <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
 
             {/* Left Panel: Document Viewer */}
-            <div className="flex-1 flex flex-col bg-[#F1F5F9] border-r border-gray-200 overflow-hidden">
+            <div 
+              id="mobile-viewport-container"
+              className={`
+                flex-1 flex flex-col bg-[#F1F5F9] border-r border-gray-200 overflow-hidden
+                ${activeMobileTab === "document" ? "flex" : "hidden lg:flex"}
+              `}
+              role="tabpanel"
+            >
 
               {/* Viewer Toolbar */}
-              <div className="h-11 shrink-0 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-10">
+              <div className="h-11 shrink-0 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-10" aria-label="Document toolbar controls">
 
                 {/* Zoom controls */}
                 <div className="flex items-center gap-1">
@@ -390,6 +665,7 @@ export default function OSMWorkspace() {
                     onClick={handleZoomReset}
                     className="text-xs font-bold px-2.5 py-1 bg-gray-50 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-100 transition-all duration-150 min-w-[52px]"
                     title="Reset Zoom"
+                    aria-label="Reset zoom to 100%"
                   >
                     {Math.round(scale * 100)}%
                   </button>
@@ -397,6 +673,7 @@ export default function OSMWorkspace() {
                     onClick={handleZoomIn}
                     className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all duration-150"
                     title="Zoom In"
+                    aria-label="Zoom In"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
@@ -404,12 +681,13 @@ export default function OSMWorkspace() {
 
                 {/* Page navigation */}
                 {fileType === "pdf" && numPages > 1 && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2" aria-label="PDF pages navigation">
                     <button
                       onClick={handlePrevPage}
                       disabled={pageNumber === 1}
                       className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
                       title="Previous Page"
+                      aria-label="Previous Page"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
@@ -421,6 +699,7 @@ export default function OSMWorkspace() {
                       disabled={pageNumber === numPages}
                       className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-150"
                       title="Next Page"
+                      aria-label="Next Page"
                     >
                       <ChevronRight className="w-4 h-4" />
                     </button>
@@ -432,6 +711,7 @@ export default function OSMWorkspace() {
                   onClick={handleRotate}
                   className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-all duration-150"
                   title="Rotate 90° Clockwise"
+                  aria-label="Rotate 90 degrees clockwise"
                 >
                   <RotateCw className="w-4 h-4" />
                 </button>
@@ -465,7 +745,14 @@ export default function OSMWorkspace() {
             </div>
 
             {/* Right Panel: Marking Panel */}
-            <div className="w-full lg:w-[400px] shrink-0 p-4 bg-[#F8FAFC] border-t lg:border-t-0 border-gray-200 overflow-y-auto">
+            <div 
+              id="mobile-marking-container"
+              className={`
+                w-full lg:w-[400px] shrink-0 p-4 bg-[#F8FAFC] border-t lg:border-t-0 border-gray-200 overflow-y-auto
+                ${activeMobileTab === "grading" ? "block" : "hidden lg:block"}
+              `}
+              role="tabpanel"
+            >
               <MarkingPanel
                 questions={questions}
                 overallRemarks={overallRemarks}
@@ -484,10 +771,15 @@ export default function OSMWorkspace() {
 
       {/* ── Saved Data JSON Modal ────────────────────────────────────── */}
       {showSavedModal && lastSavedData && (
-        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4"
+        <div 
+          className="fixed inset-0 bg-gray-900/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setShowSavedModal(false); }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
         >
           <div
+            ref={modalRef}
             className="bg-white w-full max-w-2xl rounded-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[85vh]"
             style={{ boxShadow: "0 20px 60px -10px rgba(15,23,42,0.18), 0 4px 16px -4px rgba(15,23,42,0.10)" }}
           >
@@ -498,13 +790,14 @@ export default function OSMWorkspace() {
                   <CheckCircle className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-gray-900">Evaluation Saved Successfully!</h3>
+                  <h3 id="modal-title" className="text-sm font-bold text-gray-900">Evaluation Saved Successfully!</h3>
                   <p className="text-[11px] text-gray-400">Mock database capture simulation</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowSavedModal(false)}
                 className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-all duration-150"
+                aria-label="Close dialog"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -533,6 +826,7 @@ export default function OSMWorkspace() {
                       text-gray-600 bg-white border border-gray-200 rounded-lg
                       hover:bg-gray-50 hover:text-gray-800 transition-all duration-150
                     "
+                    aria-label="Copy saved JSON schema string"
                   >
                     {copied ? (
                       <>
@@ -566,6 +860,7 @@ export default function OSMWorkspace() {
                   hover:bg-blue-700 active:scale-[0.98] rounded-xl
                   transition-all duration-200 shadow-sm hover:shadow-md
                 "
+                aria-label="Dismiss saved dialog"
               >
                 Done
               </button>

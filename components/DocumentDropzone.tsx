@@ -72,13 +72,22 @@ export default function DocumentDropzone({ onFileSelect, onUseMock }: DocumentDr
         onClick={onButtonClick}
         className={`
           w-full cursor-pointer rounded-2xl border-2 border-dashed p-12 text-center
-          transition-all duration-200 select-none
+          transition-all duration-200 select-none outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
           ${isDragActive
             ? "border-blue-400 bg-blue-50 scale-[1.01]"
             : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30"
           }
         `}
         style={{ boxShadow: "0 1px 3px 0 rgba(15,23,42,0.06), 0 1px 2px -1px rgba(15,23,42,0.04)" }}
+        role="button"
+        tabIndex={0}
+        aria-label="Upload answer sheet. Click or drag and drop a PDF or PNG/JPG image here."
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onButtonClick();
+          }
+        }}
       >
         {/* Upload Icon */}
         <div className={`
@@ -100,11 +109,11 @@ export default function DocumentDropzone({ onFileSelect, onUseMock }: DocumentDr
 
         {/* Supported formats */}
         <div className="flex items-center justify-center gap-3 mb-4">
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg">
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg" aria-label="Supports PDF documents">
             <FileText className="w-4 h-4 text-red-500" />
             <span className="text-xs font-medium text-gray-600">PDF Document</span>
           </div>
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg">
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg" aria-label="Supports PNG and JPG images">
             <ImageIcon className="w-4 h-4 text-green-600" />
             <span className="text-xs font-medium text-gray-600">PNG / JPG Image</span>
           </div>
@@ -112,7 +121,7 @@ export default function DocumentDropzone({ onFileSelect, onUseMock }: DocumentDr
 
         {/* Error */}
         {error && (
-          <div className="flex items-center gap-2 mx-auto max-w-sm text-sm text-red-600 bg-red-50 border border-red-200 px-4 py-2.5 rounded-xl mt-4">
+          <div className="flex items-center gap-2 mx-auto max-w-sm text-sm text-red-600 bg-red-50 border border-red-200 px-4 py-2.5 rounded-xl mt-4" role="alert">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span className="text-left font-medium">{error}</span>
           </div>
@@ -124,7 +133,7 @@ export default function DocumentDropzone({ onFileSelect, onUseMock }: DocumentDr
         <div className="absolute inset-0 flex items-center">
           <div className="w-full border-t border-gray-200" />
         </div>
-        <span className="relative bg-[#F8FAFC] px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+        <span className="relative bg-[#F8FAFC] px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
           or try a sample
         </span>
       </div>
@@ -140,9 +149,10 @@ export default function DocumentDropzone({ onFileSelect, onUseMock }: DocumentDr
           text-gray-700 bg-white border border-gray-200 rounded-xl
           hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50/40
           transition-all duration-200
-          shadow-sm hover:shadow-md
+          shadow-sm hover:shadow-md cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
         "
         style={{ boxShadow: "0 1px 2px 0 rgba(15,23,42,0.06)" }}
+        aria-label="Load interactive mock examination sheet with sample scores"
       >
         <Sparkles className="w-4 h-4 text-blue-500 group-hover:text-blue-600 transition-colors" />
         Load Interactive Mock Examination
